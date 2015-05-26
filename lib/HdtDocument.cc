@@ -56,6 +56,8 @@ const Persistent<Function>& HdtDocument::GetConstructor() {
                            NanNew<FunctionTemplate>(SearchTriples)->GetFunction());
     prototypeTemplate->Set(NanNew<String>("_searchLiterals"),
                            NanNew<FunctionTemplate>(SearchLiterals)->GetFunction());
+    prototypeTemplate->Set(NanNew<String>("_suggestions"),
+                           NanNew<FunctionTemplate>(Suggestions)->GetFunction());
     prototypeTemplate->Set(NanNew<String>("close"),
                            NanNew<FunctionTemplate>(Close)->GetFunction());
     prototypeTemplate->SetAccessor(NanNew<String>("closed"), Closed, NULL);
@@ -299,6 +301,75 @@ NAN_METHOD(HdtDocument::SearchLiterals) {
 
   // Create asynchronous task
   NanAsyncQueueWorker(new SearchLiteralsWorker(Unwrap<HdtDocument>(args.This()),
+    *NanUtf8String(args[0]), args[1]->Uint32Value(), args[2]->Uint32Value(),
+    new NanCallback(args[3].As<Function>()),
+    args[4]->IsObject() ? args[4].As<Object>() : args.This()));
+  NanReturnUndefined();
+}
+
+
+
+/******** HdtDocument#_suggestions ********/
+
+class SuggestionsWorker : public NanAsyncWorker {
+  HdtDocument* document;
+  // JavaScript function arguments
+  string prefix;
+  uint32_t component, limit;
+  Persistent<Object> self;
+  // Callback return values
+  vector<string> results;
+
+public:
+  SuggestionsWorker(HdtDocument* document, char* prefix, uint32_t component, uint32_t limit,
+                       NanCallback* callback, Local<Object> self)
+    : NanAsyncWorker(callback), document(document),
+      prefix(prefix), component(component), limit(limit) {
+    SaveToPersistent("self", self);
+  };
+
+  void Execute() {
+    // Find suggestions
+    Dictionary *dict = document->GetHDT()->getDictionary();
+    TripleComponentRole role =
+      (component == 1) ? TripleComponentRole::SUBJECT   :
+      (component == 2) ? TripleComponentRole::PREDICATE :
+                         TripleComponentRole::OBJECT; // component == 3 (default)
+    //printf("Looking for suggestions \"%s\" for component %d\n", prefix.c_str(), component);
+    dict->getSuggestions(prefix.c_str(), role, results, limit);
+    //printf("Number of results: %zu\n", results.size());
+  }
+
+  void HandleOKCallback() {
+    NanScope();
+    // Convert the results into a JavaScript array
+    uint32_t count = 0;
+    Local<Array> resultsArray = NanNew<Array>(results.size());
+    for (vector<string>::const_iterator it = results.begin(); it != results.end(); it++)
+      resultsArray->Set(count++, NanNew<String>(*it));
+
+    // Send the JavaScript array through the callback
+    const unsigned argc = 2;
+    Handle<Value> argv[argc] = { NanNull(), resultsArray };
+    callback->Call(GetFromPersistent("self"), argc, argv);
+  }
+
+  void HandleErrorCallback() {
+    NanScope();
+    Local<Value> argv[] = { Exception::Error(NanNew<String>(ErrorMessage())) };
+    callback->Call(GetFromPersistent("self"), 1, argv);
+  }
+};
+
+// Finds suggestions using prefix search.
+// Component must be an integer 1 for subject, 2 for predicate, or 3 for object (default).
+// JavaScript signature: HdtDocument#_suggestions(prefix, component, limit, callback, self)
+NAN_METHOD(HdtDocument::Suggestions) {
+  NanScope();
+  assert(args.Length() == 5);
+
+  // Create asynchronous task
+  NanAsyncQueueWorker(new SuggestionsWorker(Unwrap<HdtDocument>(args.This()),
     *NanUtf8String(args[0]), args[1]->Uint32Value(), args[2]->Uint32Value(),
     new NanCallback(args[3].As<Function>()),
     args[4]->IsObject() ? args[4].As<Object>() : args.This()));
