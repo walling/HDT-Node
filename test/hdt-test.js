@@ -499,6 +499,29 @@ describe('hdt', function () {
       });
     });
 
+    /*
+    describe('making subject suggestions', function () {
+      describe('for prefix http', function () {
+        var suggestions;
+        before(function (done) {
+          document.suggestions('http', { component: 'subject' },
+                               function (error, s) { suggestions = s; done(error); });
+        });
+
+        it('should return an array with suggestions', function () {
+          suggestions.should.be.an.Array;
+          suggestions.should.have.lengthOf(4);
+          suggestions.should.eql([
+            'http://example.org/s1',
+            'http://example.org/s2',
+            'http://example.org/s3',
+            'http://example.org/s4'
+          ]);
+        });
+      });
+    });
+    */
+
     describe('being closed', function () {
       var self = {}, callbackThis, callbackArgs;
       before(function (done) {
